@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Battleship</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .main {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 20px;
+        }
+
+        .boards {
+            display: flex;
+            gap: 40px;
+        }
+
+        .board-container, .chat-container {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(10, 40px);
+            gap: 3px;
+        }
+
+        .cell {
+            width: 40px;
+            height: 40px;
+            background: #87ceeb;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .cell:hover {
+            transform: scale(1.05);
+            background: #5dade2;
+        }
+
+        .ship {
+            background: gray !important;
+        }
+
+        .hit {
+            background: red !important;
+        }
+
+        .chat-container {
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #messages {
+            height: 350px;
+            overflow-y: auto;
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        input {
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        button {
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #3498db;
+            color: white;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        .player-label {
+            text-align: center;
+            font-size: 20px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Battleship Game</h1>
+
+<div class="player-label">
+    Player {{ player }}
+</div>
+
+<div class="main">
+
+    <div class="boards">
+
+        <div class="board-container">
+            <h2>Your Board</h2>
+            <div class="grid" id="playerBoard"></div>
+        </div>
+
+        <div class="board-container">
+            <h2>Attack Board</h2>
+            <div class="grid" id="attackBoard"></div>
+        </div>
+
+    </div>
+
+    <div class="chat-container">
+        <h2>Chat</h2>
+        <div id="messages"></div>
+        <input type="text" id="chatInput" placeholder="Write message...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+</div>
+
+<script>
+    const player = "{{ player }}";
+
+    function createBoard(containerId, clickHandler) {
+        const board = document.getElementById(containerId);
+
+        for (let row = 0; row < 10; row++) {
+            for (let col = 0; col < 10; col++) {
+                const cell = document.createElement("div");
+                cell.className = "cell";
+
+                cell.onclick = () => clickHandler(cell, row, col);
+
+                board.appendChild(cell);
+            }
+        }
+    }
+
+    createBoard("playerBoard", async (cell, row, col) => {
+        await fetch("/place_ship", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({row, col})
+        });
+
+        cell.classList.add("ship");
+    });
+
+    createBoard("attackBoard", async (cell, row, col) => {
+        await fetch("/attack", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({row, col})
+        });
+
+        cell.classList.add("hit");
+    });
+
+    async function sendMessage() {
+        const input = document.getElementById("chatInput");
+
+        if (input.value.trim() === "") return;
+
+        await fetch("/send_message", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                player: player,
+                message: input.value
+            })
+        });
+
+        input.value = "";
+    }
+
+    async function loadMessages() {
+        const response = await fetch("/get_messages");
+        const data = await response.json();
+
+        const messagesDiv = document.getElementById("messages");
+        messagesDiv.innerHTML = "";
+
+        data.messages.forEach(msg => {
+            const div = document.createElement("div");
+
+            const label = msg.player === player ? "Me: " : "Enemy: ";
+            div.textContent = label + msg.message;
+
+            messagesDiv.appendChild(div);
+        });
+
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    setInterval(loadMessages, 1000);
+</script>
+
+</body>
+</html>
