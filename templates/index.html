@@ -1,8 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Battleship</title>
-
+    <title>Ships Battle</title>
     <style>
         body {
             font-family: Arial;
@@ -10,7 +9,6 @@
             color: white;
             text-align: center;
         }
-
         .panel {
             background: rgba(255,255,255,0.1);
             padding: 10px;
@@ -18,19 +16,16 @@
             border-radius: 10px;
             width: 60%;
         }
-
         .main {
             display: flex;
             justify-content: center;
             gap: 30px;
         }
-
         .grid {
             display: grid;
             grid-template-columns: repeat(10, 35px);
             gap: 3px;
         }
-
         .cell {
             width: 35px;
             height: 35px;
@@ -38,44 +33,35 @@
             border-radius: 5px;
             cursor: pointer;
         }
-
         .ship { background: gray; }
         .hit { background: red; }
         .miss { background: white; }
-
         #messages {
             height: 180px;
             overflow-y: auto;
             background: rgba(255,255,255,0.1);
             margin-bottom: 5px;
+            text-align: left;
+            padding: 10px;
         }
-
-        input {
-            padding: 6px;
-            border-radius: 5px;
-            border: none;
+        .controls {
+            margin-top: 10px;
         }
-
         button {
-            padding: 6px;
-            border-radius: 5px;
-            border: none;
             cursor: pointer;
         }
     </style>
 </head>
-
 <body>
 
-<h1>Battleship</h1>
+<h1>Ships Battle</h1>
 <h2>Player {{ player }}</h2>
 
 <div class="panel" id="status"></div>
 
-<button onclick="ready()">READY</button>
+<button onclick="ready()" style="padding: 10px 20px; font-weight: bold;">READY</button>
 
 <div class="main">
-
     <div class="panel">
         <h3>Your Board</h3>
         <div class="grid" id="playerBoard"></div>
@@ -87,12 +73,15 @@
     </div>
 
     <div class="panel">
-        <h3>Chat</h3>
+        <h3>Chat & System</h3>
         <div id="messages"></div>
-        <input id="msg">
+        <input id="msg" placeholder="Type message...">
         <button onclick="send()">Send</button>
+        <div class="controls">
+            <button onclick="toggleCleanup()">Toggle Cleanup</button>
+            <button onclick="toggleModerator()">Toggle Moderator</button>
+        </div>
     </div>
-
 </div>
 
 <script>
@@ -101,7 +90,6 @@ const player = "{{ player }}";
 /* BOARD */
 function makeBoard(id, fn) {
     const el = document.getElementById(id);
-
     for (let r = 0; r < 10; r++) {
         for (let c = 0; c < 10; c++) {
             const cell = document.createElement("div");
@@ -112,18 +100,16 @@ function makeBoard(id, fn) {
     }
 }
 
-/* PLACE SHIPS */
+/* PLACE */
 makeBoard("playerBoard", async (cell, r, c) => {
     const res = await fetch("/place_ship", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({row: r, col: c, player})
     });
-
     const data = await res.json();
-
     if (data.success) cell.classList.add("ship");
-    else alert(data.error);
+    else if (data.error) alert(data.error);
 });
 
 /* ATTACK */
@@ -133,9 +119,7 @@ makeBoard("attackBoard", async (cell, r, c) => {
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({row: r, col: c, player})
     });
-
     const data = await res.json();
-
     if (!data.success) return alert(data.error);
 
     if (data.result === "hit") cell.classList.add("hit");
@@ -149,32 +133,28 @@ async function ready() {
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({player})
     });
-
     const data = await res.json();
-
     alert(data.success ? "READY!" : data.error);
 }
 
 /* CHAT */
 async function send() {
-    const msg = document.getElementById("msg");
+    const msgInput = document.getElementById("msg");
+    if (!msgInput.value) return;
 
     await fetch("/send_message", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({player, message: msg.value})
+        body: JSON.stringify({player, message: msgInput.value})
     });
-
-    msg.value = "";
+    msgInput.value = "";
 }
 
 async function loadMessages() {
     const res = await fetch("/get_messages");
     const data = await res.json();
-
     const box = document.getElementById("messages");
     box.innerHTML = "";
-
     data.messages.forEach(m => {
         const div = document.createElement("div");
         div.textContent = (m.player === player ? "Me: " : "Enemy: ") + m.message;
@@ -182,29 +162,70 @@ async function loadMessages() {
     });
 }
 
-/* GAME STATE HUD */
+/* TOGGLE CLEANUP */
+async function toggleCleanup() {
+    const res = await fetch("/toggle_cleanup", {method: "POST"});
+    const data = await res.json();
+    alert("Cleanup: " + data.status);
+}
+
+/* TOGGLE MODERATOR */
+async function toggleModerator() {
+    const res = await fetch("/toggle_moderator", {method: "POST"});
+    const data = await res.json();
+    alert("Moderator: " + data.status);
+}
+
+/* STATE UPDATE */
+function getCell(gridId, r, c) {
+    const grid = document.getElementById(gridId);
+    return grid.children[r * 10 + c];
+}
+
 async function updateState() {
-    const res = await fetch("/state");
+    const res = await fetch(`/state?player=${player}`);
     const s = await res.json();
-
+    
     let status = "";
-
-    status += `P1: ${s.players["1"].ready ? "READY" : "NOT READY"} (${s.players["1"].ships}/10)<br>`;
-    status += `P2: ${s.players["2"].ready ? "READY" : "NOT READY"} (${s.players["2"].ships}/10)<br><br>`;
-
-    if (!s.started) {
-        status += "WAITING FOR PLAYERS...";
-    } else {
-        status += "GAME STARTED<br>";
-
-        if (s.turn === player) {
-            status += "YOUR TURN";
+    
+    // 1. Sprawdzenie czy gra się skończyła
+    if (s.winner) {
+        status = `<h2 style="color: yellow;">GAME OVER! PLAYER ${s.winner} WINS!</h2>`;
+        if (s.winner === player) {
+            status += "<h3>Congratulations, Admiral!</h3>";
         } else {
-            status += "ENEMY TURN";
+            status += "<h3>Better luck next time...</h3>";
+        }
+    } else {
+        // Standardowy status gry
+        status += `P1: ${s.players["1"].ready ? "READY" : "NOT READY"} (${s.players["1"].ships_count}/10)<br>`;
+        status += `P2: ${s.players["2"].ready ? "READY" : "NOT READY"} (${s.players["2"].ships_count}/10)<br><br>`;
+        
+        if (!s.started) {
+            status += "WAITING FOR PLAYERS...";
+        } else {
+            status += (s.turn === player) ? "<b style='color: lime;'>YOUR TURN</b>" : "ENEMY TURN";
         }
     }
-
+    
     document.getElementById("status").innerHTML = status;
+
+    // 2. Odtwarzanie Twoich statków
+    s.my_ships.forEach(coord => {
+        const [r, c] = coord.split(",").map(Number);
+        getCell("playerBoard", r, c).classList.add("ship");
+    });
+
+    // 3. Odtwarzanie ataków
+    s.attacks.forEach(a => {
+        if (a.player === player) {
+            const cell = getCell("attackBoard", a.row, a.col);
+            cell.classList.add(a.result === "hit" ? "hit" : "miss");
+        } else {
+            const cell = getCell("playerBoard", a.row, a.col);
+            cell.classList.add(a.result === "hit" ? "hit" : "miss");
+        }
+    });
 }
 
 setInterval(loadMessages, 1000);
